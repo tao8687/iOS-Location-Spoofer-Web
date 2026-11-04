@@ -1028,16 +1028,6 @@ html.dark #search-results::-webkit-scrollbar-thumb {
       <div class="config-code-box" id="config-arg-text">...</div>
       <button class="config-action-btn" id="btn-config-copy-arg">复制 argument 参数</button>
     </div>
-    <div class="config-section">
-      <div id="debug-toggle">
-        <div id="debug-toggle-label">
-          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-          调试日志 (debug)
-        </div>
-        <div class="toggle-switch" id="debug-toggle-switch"><div class="toggle-knob"></div></div>
-      </div>
-      <div class="config-desc" style="margin-top:10px;">开启后脚本会在 Shadowrocket 日志中输出改写详情，便于排查「模块不生效」。排查完请关闭。</div>
-    </div>
     <div class="config-section" style="border-bottom:none;">
       <div id="dark-toggle">
         <div id="dark-toggle-label">
@@ -1046,11 +1036,6 @@ html.dark #search-results::-webkit-scrollbar-thumb {
         </div>
         <div class="toggle-switch" id="dark-toggle-switch"><div class="toggle-knob"></div></div>
       </div>
-    </div>
-    <div class="config-section" style="border-bottom:none;">
-      <div class="config-title">模块自检</div>
-      <div class="config-desc">一键检查：KV 坐标是否落库、loc.json 能否被小火箭读取、脚本与模块文件是否可访问。定位不生效时先点这个。</div>
-      <button class="config-action-btn" id="btn-config-selftest">运行自检</button>
     </div>
   </div>
 </div>
@@ -1135,12 +1120,9 @@ html.dark #search-results::-webkit-scrollbar-thumb {
 
 /* ─── Runtime config injected by server ─────────────────── */
 var CFG = window.__CFG__ || {};
-var HAS_TOKEN = CFG.hasToken === true;
+var TOKEN = CFG.token || '';
 var AMAP_KEY = CFG.amapKey || '';
-var API = function(p){ 
-  var t = localStorage.getItem('gps_token') || '';
-  return p + (t ? '?token=' + encodeURIComponent(t) : ''); 
-};
+var API = function(p){ return p + (TOKEN ? '?token=' + encodeURIComponent(TOKEN) : ''); };
 
 /* ─── GCJ-02 ↔ WGS-84 (China map offset correction) ─────── */
 var GCJ = (function(){
@@ -1738,25 +1720,11 @@ function openConfigPanel() {
   
   // Dynamically build paths
   var domain = window.location.origin;
-  var tokenVal = localStorage.getItem('gps_token') || '';
-  var debugVal = localStorage.getItem('gps_debug') === '1';
+  var tokenVal = localStorage.getItem('gps_token') || TOKEN || '';
   
   // Format links
-  // 注意：query 参数的拼接必须用 '?' 还是 '&' 取决于前面是否已有参数，
-  // 否则无 Token 时会拼出 "...sgmodule&debug=1" 这种非法 URL。
-  var moduleUrl = domain + '/ios-location-spoofer.sgmodule'
-    + (tokenVal ? '?token=' + encodeURIComponent(tokenVal) : '')
-    + (debugVal ? (tokenVal ? '&' : '?') + 'debug=1' : '');
-
-  // 完整 argument（可直接整段覆盖模块原有参数）：
-  // configUrl 供小火箭脚本拉取最新坐标，其余为服务端不可达时的兜底值。
-  var argText = 'mode=response'
-    + '&configUrl=' + domain + '/loc.json'
-    + (tokenVal ? '?token=' + encodeURIComponent(tokenVal) : '')
-    + '&latitude=' + (WGS.lat != null ? WGS.lat : 39.90872)
-    + '&longitude=' + (WGS.lng != null ? WGS.lng : 116.39748)
-    + '&horizontalAccuracy=39&verticalAccuracy=1000&altitude=44'
-    + '&debug=' + (debugVal ? 'true' : 'false');
+  var moduleUrl = domain + '/ios-location-spoofer.sgmodule?token=' + encodeURIComponent(tokenVal);
+  var argText = 'configUrl=' + domain + '/loc.json?token=' + encodeURIComponent(tokenVal);
   
   $id('config-url-text').textContent = moduleUrl;
   $id('config-arg-text').textContent = argText;
@@ -1791,52 +1759,6 @@ $id('btn-config-copy-arg').addEventListener('click', function() {
   navigator.clipboard.writeText($id('config-arg-text').textContent)
     .then(function() { toast('参数已复制'); })
     .catch(function() { toast('复制失败，请手动选择复制'); });
-});
-
-/* ─── Debug toggle (Shadowrocket script logging) ─────────── */
-var isDebug = localStorage.getItem('gps_debug') === '1';
-var debugSwitch = $id('debug-toggle-switch');
-function applyDebug(v) {
-  isDebug = v;
-  debugSwitch.classList.toggle('on', v);
-  localStorage.setItem('gps_debug', v ? '1' : '0');
-  if (configPanelOpen) openConfigPanel();
-}
-applyDebug(isDebug);
-debugSwitch.addEventListener('click', function() {
-  applyDebug(!isDebug);
-  toast(isDebug ? '已开启调试日志，请重新导入模块' : '已关闭调试日志');
-});
-
-/* ─── Module self-test ───────────────────────────────────── */
-$id('btn-config-selftest').addEventListener('click', function() {
-  var t = localStorage.getItem('gps_token') || '';
-  var url = window.location.origin + '/selftest' + (t ? '?token=' + encodeURIComponent(t) : '');
-  var btn = this;
-  btn.disabled = true;
-  btn.textContent = '检测中…';
-  fetch(url)
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      var lines = (d.checks || []).map(function(c) {
-        return (c.ok ? '✅ ' : '❌ ') + c.name + '：' + c.detail;
-      });
-      var msg = lines.join('\n');
-      if (d.ok) {
-        toast('自检全部通过 ✅');
-      } else {
-        toast('自检发现问题 ❌');
-      }
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(msg).catch(function() {});
-      }
-      alert(msg + '\n\n（结果已复制到剪贴板）');
-    })
-    .catch(function() { alert('自检请求失败，请检查网络'); })
-    .finally(function() {
-      btn.disabled = false;
-      btn.textContent = '运行自检';
-    });
 });
 
 // Click overlay closes everything
@@ -1902,8 +1824,8 @@ function showLoginScreen(onSuccess) {
 }
 
 function handleAuthentication(onAuthenticated) {
-  if (!HAS_TOKEN) {
-    // Open access, no token required on server
+  if (!TOKEN) {
+    // Open access, no token required
     $id('login-overlay').style.display = 'none';
     localStorage.removeItem('gps_token');
     localStorage.removeItem('gps_session');
@@ -1934,7 +1856,7 @@ function handleAuthentication(onAuthenticated) {
 handleAuthentication(function(activeToken) {
   // Update API URL helper with cached token dynamically
   API = function(p) {
-    var t = activeToken || localStorage.getItem('gps_token') || '';
+    var t = activeToken || localStorage.getItem('gps_token') || TOKEN || '';
     return p + (t ? '?token=' + encodeURIComponent(t) : '');
   };
 
