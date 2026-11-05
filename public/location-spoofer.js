@@ -469,7 +469,8 @@
     cfg.prepareHeaders = parseBoolean(cfg.prepareHeaders, false);
     // 布尔项从 argument 传入时是字符串，"false" 也是 truthy，必须显式归一化，
     // 否则 debug=false 会意外开启调试日志。
-    cfg.debug = parseBoolean(cfg.debug, false);    cfg.rawLimit = Math.trunc(Number(cfg.rawLimit || 0));
+    cfg.debug = parseBoolean(cfg.debug, false);
+    cfg.rawLimit = Math.trunc(Number(cfg.rawLimit || 0));
     if (!Number.isFinite(cfg.rawLimit) || cfg.rawLimit < 0) {
       cfg.rawLimit = 0;
     }

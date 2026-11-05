@@ -24,6 +24,7 @@
 | ⭐ | **智能收藏夹** | 毛玻璃面板，保存常用地点；已收藏位置星标实心，点击实心星直接取消收藏；相同坐标自动去重 |
 | 🔢 | **高级参数** | 可调节海拔、水平精度、垂直精度（支持地形高度自动获取）|
 | 🔍 | **坐标直跳** | 搜索框直接粘贴经纬度（如 `39.9087, 116.3975`）即可跳转，无需调 API |
+| 🐞 | **调试日志** | 面板内一键开启 debug，Shadowrocket 日志输出改写详情，便于排查「模块不生效」 |
 | 🌙 | **深色模式** | 设置面板内一键切换深色/浅色，偏好自动记忆 |
 | 📲 | **PWA 支持** | Safari「添加到主屏幕」后全屏运行，体验接近原生 App |
 | 🐳 | **极简部署** | Cloudflare Pages 全局边缘节点 Serverless 部署，零服务器维护成本 |
@@ -138,6 +139,126 @@
 > **收藏常用地点**：锁定位置后点击准星旁的 ⭐ 星标即可收藏，再次点击实心星可取消收藏。
 > **夜间使用**：点击设置面板底部的「深色模式」开关，偏好自动记忆。
 > **添加到主屏幕 (PWA)**：在 Safari 中点击「分享」→「添加到主屏幕」，即可像 App 一样全屏使用。
+
+---
+
+## 🔍 排查：模块不生效 / 定位没变化
+
+> 按下面顺序逐条排查，**不要跳步**。绝大多数「不生效」在第 1、2 步就能定位。
+
+### 第 0 步：先确认服务端是通的
+
+在手机浏览器直接访问（把域名和 Token 换成你自己的）：
+
+```
+https://你的域名/loc.json?token=你的Token
+```
+
+| 返回结果 | 含义 | 处理 |
+|---|---|---|
+| 一段坐标 JSON | 服务端正常，问题在客户端 | 继续第 1 步 |
+| `401 unauthorized` | Token 不匹配 | 核对 Cloudflare 环境变量 `TOKEN` 与访问时输入的 Token 是否完全一致（**注意结尾不要多空格或句点**） |
+| `404` | 路由或 KV 绑定有问题 | 检查 Pages 项目的 **Settings → Functions → KV namespace bindings** 是否已绑定 `SPOOFER_DATA`，并重新部署一次 |
+
+> 这里的 Token 是 URL 里的 `token=` 参数值，必须与 Cloudflare 环境变量 `TOKEN` **一字不差**。
+
+### 第 1 步：确认脚本有没有被执行
+
+开启调试日志：
+
+1. 面板 → 右上角 **⚙️ 设置** → 打开 **「调试日志 (debug)」** 开关
+2. **重新导入模块**（开关只对新导入的模块生效）：
+   - 方法 A：设置面板 →「一键导入模块」
+   - 方法 B：设置面板 →「复制 argument 参数」→ 粘贴覆盖 Shadowrocket 模块里的 `argument=`
+3. Shadowrocket → 底部 **「数据」** → **「日志」** → 搜索 `Location spoofer`
+
+> ⚠️ 日志只在 **Shadowrocket App 内**查看。脚本运行在你的 iPhone 上，`console.log` 的输出不会出现在 Cloudflare 的服务端日志里。
+
+**日志结果对照表：**
+
+| 日志表现 | 含义 | 下一步 |
+|---|---|---|
+| **完全没有** `Location spoofer` 字样 | 脚本压根没被执行 | 走第 2 步 |
+| `Location spoofer failed: ...` | 脚本执行了，但响应封装解析失败 | 走第 3 步 |
+| `Location spoofer patched N wifi devices, ...` | ✅ 脚本已成功改写坐标 | 若定位仍无变化，走第 4 步 |
+
+看到 `patched` 就说明**脚本侧完全正常**，问题出在系统缓存或客户端信任链上。
+
+### 第 2 步：脚本没被执行时的三项检查
+
+按顺序确认这三项，90% 的「无日志」都是这里的问题：
+
+1. **HTTPS 解密是否开启**
+   Shadowrocket →「配置」→ 点击当前配置文件进入详情 →「HTTPS 解密」→ 打开开关，并打开 **「通过 HTTP/2 进行中间人攻击 (MitM)」**
+
+2. **CA 证书是否「完全信任」**
+   > 装了证书 ≠ 完全信任。必须前往 iPhone **「设置 → 通用 → 关于本机 → 证书信任设置」**，找到 Shadowrocket 证书并打开对应的信任开关。这一步漏掉是最常见的原因。
+
+3. **模块开关是否为「开启」**
+   Shadowrocket →「配置」→「模块」→ 确认 `iOS Location Spoofer` 的开关处于开启状态
+
+此外确认 **VPN 主开关已打开**，且模式为「配置 (Config)」。
+
+### 第 3 步：probe 模式查看响应结构
+
+当日志显示 `failed` 时，改用 probe 模式可看到原始响应的封装结构。
+
+在 Shadowrocket 中编辑模块，把 `argument=` 里的 `mode=response` 改为 `mode=probe`（并保持 `debug=true`）：
+
+```
+argument=mode=probe&debug=true
+```
+
+probe 模式**不改写任何响应**，只 dump 结构信息：
+
+```
+Location spoofer probe headers: status=200, content-length=17, content-type=application/octet-stream
+Location spoofer probe body slots: body=string/5, bodyBytes=Uint8Array/17, rawBody=undefined/0
+Location spoofer probe selected body: 17 bytes, head=0801120361626308021204646566670803
+```
+
+**`body slots` 这行最关键**，它直接告诉你 Shadowrocket 给你的响应体到底是什么类型：
+
+- `body=string/N` —— 响应体是字符串，脚本必须走 `bodyBytes` 分支才能拿到完整二进制
+- `bodyBytes=Uint8Array/N` —— 完整的原始二进制，正常情况下脚本优先取它
+
+> 更深入的封装拆解可把 `mode` 改为 `inspect`，会额外输出 ARPC 封包版本、functionId 与 protobuf 字段直方图。
+
+### 第 4 步：脚本已 patched 但定位没变
+
+脚本改写成功却看不到效果，通常是 **iOS 定位缓存**没刷新：
+
+1. 前往 iPhone **「设置 → 隐私与安全 → 定位服务」**，**关闭**该开关
+2. 等待 **10 秒**
+3. 再重新开启
+
+若仍无效，**完全重启设备** —— iOS 的 `locationd` 进程会缓存旧的定位结果，重启才会彻底清除。
+
+### 各模式对照表
+
+在 Shadowrocket 中编辑模块的 `argument=` 可切换行为：
+
+| 参数 | 作用 |
+|---|---|
+| `mode=response` | 正常改写响应（默认，务必使用） |
+| `mode=probe` | 只探测响应结构，不改写，用于排查 |
+| `mode=inspect` | 深度拆解 ARPC 封包与 protobuf 字段 |
+| `debug=true` | 输出调试日志，排查完请关闭 |
+| `dumpRaw=true` | 输出原始响应的 base64（配合 `rawLimit=N` 限制长度） |
+| `dumpHeaders=true` | 输出请求/响应头信息 |
+
+> **排查完记得把 `debug` 改回 `false`**。调试日志会显著增加 Shadowrocket 的内存占用与日志体积。
+
+### ⚠️ 系统版本限制
+
+| 平台 / 版本 | 状态 | 说明 |
+|---|---|---|
+| **iOS / iPadOS 14.0 及以上** | 🟢 支持 | 覆盖当前所有主流正式版系统 |
+| **iOS / iPadOS 12.0 ~ 13.x** | ⚠️ 脚本引擎受限 | 核心脚本使用 BigInt 字面量（`0n`）处理 64 位坐标精度，属 ES2020 语法，iOS 12/13 的 JavaScriptCore 无法解析，Shadowrocket 会直接报语法错误 |
+| **iOS 27 beta 6 及以上** | ⚠️ 系统受限 | 苹果在系统定位组件启用了强 TLS 证书固定（Pinning），**所有 MITM 方案均失效**，非本项目代码问题 |
+
+> 坐标字段为 64 位定点数（精度约 1.7e-8 度），必须使用 BigInt 承载以保证精度，
+> 因此无法在不损失精度的前提下兼容 iOS 12/13。
 
 ---
 
