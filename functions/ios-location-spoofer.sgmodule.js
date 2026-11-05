@@ -22,9 +22,11 @@ export async function onRequestGet(context) {
   const host = request.headers.get('host') || url.host;
   const protocol = request.headers.get('x-forwarded-proto') || url.protocol.replace(':', '');
   const tVal = url.searchParams.get('token') || '';
+  const debugOn = url.searchParams.get('debug') === '1';
 
   content = content.replace(/你的域名/g, host);
   content = content.replace(/你的Token/g, tVal);
+  content = content.replace(/&debug=false/g, '&debug=' + (debugOn ? 'true' : 'false'));
   
   if (protocol === 'https') {
     content = content.replace(/http:\/\/localhost:8080/g, 'https://' + host);

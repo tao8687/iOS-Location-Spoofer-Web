@@ -90,13 +90,15 @@ html.dark .result-row{color:var(--text);border-bottom-color:rgba(255,255,255,0.0
 html.dark .result-row:active{background:rgba(0,122,255,0.15);}
 html.dark .config-code-box{background:rgba(0,0,0,0.35);color:var(--text);border-color:rgba(255,255,255,0.1);}
 /* dark mode toggle button */
-#dark-toggle{
+#dark-toggle,
+#debug-toggle{
   display:flex;align-items:center;justify-content:space-between;
   padding:14px 20px;
   font-size:14px;font-weight:500;color:var(--text);
   cursor:default;
 }
-#dark-toggle-label{display:flex;align-items:center;gap:8px;}
+#dark-toggle-label,
+#debug-toggle-label{display:flex;align-items:center;gap:8px;}
 .toggle-switch{
   position:relative;width:44px;height:26px;
   background:rgba(120,120,128,0.32);
@@ -1028,6 +1030,16 @@ html.dark #search-results::-webkit-scrollbar-thumb {
       <div class="config-code-box" id="config-arg-text">...</div>
       <button class="config-action-btn" id="btn-config-copy-arg">复制 argument 参数</button>
     </div>
+    <div class="config-section">
+      <div id="debug-toggle">
+        <div id="debug-toggle-label">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+          调试日志 (debug)
+        </div>
+        <div class="toggle-switch" id="debug-toggle-switch"><div class="toggle-knob"></div></div>
+      </div>
+      <div class="config-desc" style="margin-top:10px;">开启后需重新导入模块，Shadowrocket 日志会输出 [Location Spoofer] 改写详情，便于排查「模块不生效」。排查完请关闭。</div>
+    </div>
     <div class="config-section" style="border-bottom:none;">
       <div id="dark-toggle">
         <div id="dark-toggle-label">
@@ -1510,6 +1522,22 @@ function applyDark(v) {
 applyDark(isDark);
 darkSwitch.addEventListener('click', function() { applyDark(!isDark); });
 
+/* ─── Debug log toggle (Shadowrocket script logging) ────── */
+var debugSwitch = $id('debug-toggle-switch');
+var isDebug = localStorage.getItem('gps_debug') === '1';
+function applyDebug(v) {
+  isDebug = v;
+  debugSwitch.classList.toggle('on', v);
+  localStorage.setItem('gps_debug', v ? '1' : '0');
+  // 面板内的 argument 需要实时反映开关状态
+  if (configPanelOpen) openConfigPanel();
+}
+applyDebug(isDebug);
+debugSwitch.addEventListener('click', function() {
+  applyDebug(!isDebug);
+  toast(isDebug ? '已开启调试日志，请重新导入模块' : '已关闭调试日志');
+});
+
 /* ─── Drawer expand/collapse ─────────────────────────────── */
 var drawer=$id('drawer');
 var drawerHandle=$id('drawer-handle');
@@ -1723,8 +1751,11 @@ function openConfigPanel() {
   var tokenVal = localStorage.getItem('gps_token') || TOKEN || '';
   
   // Format links
-  var moduleUrl = domain + '/ios-location-spoofer.sgmodule?token=' + encodeURIComponent(tokenVal);
-  var argText = 'configUrl=' + domain + '/loc.json?token=' + encodeURIComponent(tokenVal);
+  // 模块链接带上 debug 参数，让「一键导入模块」直接带上调试开关
+  var moduleUrl = domain + '/ios-location-spoofer.sgmodule?token=' + encodeURIComponent(tokenVal)
+    + '&debug=' + (isDebug ? '1' : '0');
+  var argText = 'configUrl=' + domain + '/loc.json?token=' + encodeURIComponent(tokenVal)
+    + '&debug=' + (isDebug ? 'true' : 'false');
   
   $id('config-url-text').textContent = moduleUrl;
   $id('config-arg-text').textContent = argText;
